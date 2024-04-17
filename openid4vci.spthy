@@ -1,0 +1,101 @@
+theory OpenID4VCI
+begin
+
+builtins: hashing, asymmetric-encryption, signing
+
+restriction Eq_testing: "All x y #i. Eq(x, y) @ i ==> x = y"
+
+// Register key
+rule Register_pk:
+    [ Fr(~ltk) ]
+  -->
+    [ !Ltk($A, ~ltk), !Pk($A, pk(~ltk)) ]
+
+// Get key
+// Adversary can always get any public key
+rule Get_pk:
+    [ !Pk(A, pubkey) ]
+    -->
+    [ Out(pubkey) ]
+
+
+// Init credential offer on issuer
+// and send it to wallet e.g. scanning qr code
+rule Init_credential_offer:
+    let grants = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
+        pre-authorised_code = <~code, 'false'>
+        credential_offer = <grants,pre-authorised_code,$list_of_credentials,$credential_issuer>
+    in
+    [Fr(~code)]
+    -->
+    // This step is scanning qr code
+    // we assume this is done using secure channal
+    // TODO
+    [ Out(credential_offer) ]
+
+// Wallet consumes offer and requests token
+rule Wallet_token_req:
+    let grants = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
+        pre-authorised_code = <~code, 'false'>
+        credential_offer = <grants,pre-authorised_code,$list_of_credentials,$credential_issuer>
+
+        token_req = <$client_id, grants, ~code>
+    in
+    // Credential offer is reciver using secure channal
+    // TODO
+    [ In(credential_offer) ]
+    -->
+    [ Out(token_req)]
+
+rule Issuer_token_res:
+    let grants = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
+        token_req = <$client_id, grants, ~code>
+
+        // token is JWT signed by issuer
+        // important part of JET is code in payload
+        token = sign(~code, !Ltk($issuer,~ltk))
+        // here is missing expires_in, c_nounce_expires_in
+        // authorisation_pending and interval fields
+        token_res = <token, 'bearer', ~c_nounce>
+    in
+    [ In(token_req), Fr(~c_nounce) ]
+    -->
+    [ Out(token_res) ]
+
+rule Wallet_credential_request:
+    let 
+        token_res = <token, 'bearer', ~c_nounce>
+        //TODO check if token is signed by issuer
+
+
+        // Missing fields are types which is list of credential types
+        // then format. Proof fields contains string proof_type and
+        // JWT which is signed by wallet. JWT contains c_nounce
+        // which we get from token response
+        credential_req = <>
+    in
+    [In(token_res)]
+    --
+    [Eq(verify(token, code, issuer_pub_key), true)]
+    ->
+    [Out(credential_req)]
+
+rule Issuer_credential_response:
+    let
+        //TODO check if token is signed by issuer
+        // c_nounce from credential_req needs to be same as in
+        // token response
+        
+        // Credential offer has fields credential, format, c_nounce
+        // which needs to be same as in credential_req
+        // and c _nounce_expires_in
+        // Credential is JWT signed by issuer
+        // I SUPPOSE that most important part of JWT is
+        // iss and sub which are pub keys of issuer and wallet
+    in
+    [In(credential_req)]
+    -->
+    [Out(credential_offer)]
+
+    // At the end user checks credential and decides
+    // to accept it or not
