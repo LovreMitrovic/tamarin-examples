@@ -1,9 +1,9 @@
 theory OpenID4VCI
 begin
 
-builtins: hashing, asymmetric-encryption, signing
+builtins: hashing, asymmetric-encryption, signing, revealing-signing
 
-restriction Eq_testing: "All x y #i. Eq(x, y) @ i ==> x = y"
+restriction Equality: "All x y #i. Eq(x,y) @i ==> x = y"
 
 // Register key
 rule Register_pk:
@@ -18,67 +18,80 @@ rule Get_pk:
     -->
     [ Out(pubkey) ]
 
+rule Reveal_ltk:
+    [ !Ltk(A, ltk) ]
+    --[ LtkReveal(A) ]->
+    [ Out(ltk) ]
+
+// Modeling secure channal https://tamarin-prover.com/manual/master/book/011_advanced-features.html#confidential-channel-rules
+rule ChanOut_C:
+        [ Out_C($A,$B,x) ]
+      --[ ChanOut_C($A,$B,x) ]->
+        [ !Conf($B,x) ]
+
+rule ChanIn_C:
+        [ !Conf($B,x), In($A) ]
+      --[ ChanIn_C($A,$B,x) ]->
+        [ In_C($A,$B,x) ]
+
+rule ChanIn_CAdv:
+    [ In(<$A,$B,x>) ]
+        -->
+        [ In_C($A,$B,x) ]
 
 // Init credential offer on issuer
 // and send it to wallet e.g. scanning qr code
 rule Init_credential_offer:
-    let grants = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
-        pre-authorised_code = <~code, 'false'>
-        credential_offer = <grants,pre-authorised_code,$list_of_credentials,$credential_issuer>
-    in
+    let credential_offer = <~code, $issuer> in
     [Fr(~code)]
     -->
-    // This step is scanning qr code
-    // we assume this is done using secure channal
-    // TODO
-    [ Out(credential_offer) ]
+    [ Out_C($issuer, $wallet, credential_offer), St_iss_1($issuer, ~code) ]
+
 
 // Wallet consumes offer and requests token
 rule Wallet_token_req:
-    let grants = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
-        pre-authorised_code = <~code, 'false'>
-        credential_offer = <grants,pre-authorised_code,$list_of_credentials,$credential_issuer>
-
-        token_req = <$client_id, grants, ~code>
+    let credential_offer = <~code, $issuer>
+        token_req = <pkWal, ~code>
     in
-    // Credential offer is reciver using secure channal
-    // TODO
-    [ In(credential_offer) ]
+    [ In_C($issuer, $wallet, credential_offer),
+        !Ltk($wallet, ~ltkWal), !Pk($wallet, pkWal) ]
     -->
-    [ Out(token_req)]
+    [ Out_C($wallet, $issuer, token_req), St_wal_1($wallet, ~code)]
 
 rule Issuer_token_res:
-    let grants = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
-        token_req = <$client_id, grants, ~code>
+    let token_req = <~client_id, ~code>
 
         // token is JWT signed by issuer
-        // important part of JET is code in payload
-        token = sign(~code, !Ltk($issuer,~ltk))
+        // important part of JET is code in payload which includes code
+        token = revealSign(~code, ~ltkIss)
         // here is missing expires_in, c_nounce_expires_in
         // authorisation_pending and interval fields
-        token_res = <token, 'bearer', ~c_nounce>
+        token_res = <token, ~c_nounce>
     in
-    [ In(token_req), Fr(~c_nounce) ]
+    [ In_C($wallet, $issuer, token_req),
+        !Ltk($issuer, ~ltkIss),
+        Fr(~c_nounce), St_iss_1($issuer, ~code) ]
     -->
-    [ Out(token_res) ]
+    [ Out_C($issuer, $wallet, token_res), St_iss_2($issuer, ~code, ~c_nounce) ]
 
 rule Wallet_credential_request:
     let 
-        token_res = <token, 'bearer', ~c_nounce>
-        //TODO check if token is signed by issuer
-
+        token_res = <token, ~c_nounce>
+        proof = revealSign(~c_nounce, ~ltkWal)
 
         // Missing fields are types which is list of credential types
         // then format. Proof fields contains string proof_type and
         // JWT which is signed by wallet. JWT contains c_nounce
         // which we get from token response
-        credential_req = <>
+        credential_req = <token, proof>
     in
-    [In(token_res)]
-    --
-    [Eq(verify(token, code, issuer_pub_key), true)]
-    ->
-    [Out(credential_req)]
+    [In_C($issuer, $wallet,token_res),
+        !Ltk($wallet,~ltkWal), !Pk($issuer, pkIss),
+        St_wal_1($wallet, ~code)]
+
+    --[Eq(revealVerify(token, ~code, pkIss), true)]->
+
+    [Out_C($wallet, $issuer,credential_req), St_wal_2($wallet, ~code, token)]
 
 rule Issuer_credential_response:
     let
@@ -92,10 +105,40 @@ rule Issuer_credential_response:
         // Credential is JWT signed by issuer
         // I SUPPOSE that most important part of JWT is
         // iss and sub which are pub keys of issuer and wallet
+        credential_req = <token, proof>
+
+        credential = revealSign(<pkIss, pkWal>, ~ltkIss)
+        credential_res = <credential, ~c_nounce>
     in
-    [In(credential_req)]
-    -->
-    [Out(credential_offer)]
+    [In_C($wallet, $issuer,credential_req),
+        St_iss_2($issuer, ~code, ~c_nounce),
+        !Ltk($issuer, ~ltkIss), !Pk($issuer, pkIss), !Pk($wallet, pkWal)]
+    
+    // token is code signed by Iss
+    // proof is nounce signed by wall
+    --[Eq(revealVerify(token, ~code, pkIss), true),
+        Eq(revealVerify(proof, ~c_nounce, pkWal), true)]->
+
+    [Out_C($issuer, $wallet,credential_res)]
 
     // At the end user checks credential and decides
     // to accept it or not
+
+rule Wallet_accept_credential:
+        let credential_res = <credential, ~c_nounce>
+        in
+        [In_C($issuer, $wallet, credential_res),
+            !Ltk($wallet,~ltkWall), !Pk($wallet, pkWal),!Pk($issuer, pkIss)]
+
+        --[Eq(revealVerify(credential, <pkIss, pkWal>, pkIss), true),
+        Finish()]->
+
+        []
+
+// modeling security properties of protocol
+lemma executable:
+    exists-trace
+        " Ex #i. Finish()@i
+            & not (Ex b #k. LtkReveal(b)@k) "
+
+end
