@@ -23,7 +23,10 @@ rule Reveal_ltk:
     --[ LtkReveal(A) ]->
     [ Out(ltk) ]
 
-// Modeling secure channal https://tamarin-prover.com/manual/master/book/011_advanced-features.html#confidential-channel-rules
+/*
+    Modeling secure channal
+    https://tamarin-prover.com/manual/master/book/011_advanced-features.html#confidential-channel-rules
+*/
 rule ChanOut_C:
         [ Out_C($A,$B,x) ]
       --[ ChanOut_C($A,$B,x) ]->
@@ -39,13 +42,21 @@ rule ChanIn_CAdv:
         -->
         [ In_C($A,$B,x) ]
 
+// User enters claims in browser
+// Browser sends POST request to issuer vis TLS
+rule User_create_offer:
+    [ ]
+    -->
+    [ Out_C($user, $issuer, $claims), St_usr_1($claims)]
+
+
 // Init credential offer on issuer
 // and send it to wallet e.g. scanning qr code
-rule Init_credential_offer:
+rule Issuer_credential_offer:
     let credential_offer = <~code, $issuer> in
-    [Fr(~code)]
+    [ In_C($user, $issuer, $claims), Fr(~code)]
     -->
-    [ Out_C($issuer, $wallet, credential_offer), St_iss_1($issuer, ~code) ]
+    [ Out_C($issuer, $wallet, credential_offer), St_iss_1($issuer, ~code), St_iss_map(~code, $claims)]
 
 
 // Wallet consumes offer and requests token
@@ -107,11 +118,11 @@ rule Issuer_credential_response:
         // iss and sub which are pub keys of issuer and wallet
         credential_req = <token, proof>
 
-        credential = revealSign(<pkIss, pkWal>, ~ltkIss)
+        credential = revealSign(<pkIss, pkWal, $claims>, ~ltkIss)
         credential_res = <credential, ~c_nounce>
     in
     [In_C($wallet, $issuer,credential_req),
-        St_iss_2($issuer, ~code, ~c_nounce),
+        St_iss_2($issuer, ~code, ~c_nounce), St_iss_map(~code, $claims),
         !Ltk($issuer, ~ltkIss), !Pk($issuer, pkIss), !Pk($wallet, pkWal)]
     
     // token is code signed by Iss
@@ -130,10 +141,17 @@ rule Wallet_accept_credential:
         [In_C($issuer, $wallet, credential_res),
             !Ltk($wallet,~ltkWall), !Pk($wallet, pkWal),!Pk($issuer, pkIss)]
 
-        --[Eq(revealVerify(credential, <pkIss, pkWal>, pkIss), true),
-        Finish()]->
+        --[Eq(revealVerify(credential, getMessage(credential), pkIss), true)]->
 
-        []
+        [Out_C($wallet, $user, credential)]
+
+rule User_accept_credential:
+    let credential = <pkIssFromCredential, pkWalFromCredential, claimsFromCredential>
+    in
+    [In_C($wallet, $user, credential), St_usr_1($claims)]
+    --[Eq($claims, claimsFromCredential),
+        Finish()]->
+    []
 
 // modeling security properties of protocol
 lemma executable:
