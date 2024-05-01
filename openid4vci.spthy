@@ -25,38 +25,34 @@ rule Reveal_ltk:
 
 /*
     Modeling secure channal
-    https://tamarin-prover.com/manual/master/book/011_advanced-features.html#confidential-channel-rules
 */
-rule ChanOut_C:
-        [ Out_C($A,$B,x) ]
-      --[ ChanOut_C($A,$B,x) ]->
-        [ !Conf($B,x) ]
 
-rule ChanIn_C:
-        [ !Conf($B,x), In($A) ]
-      --[ ChanIn_C($A,$B,x) ]->
-        [ In_C($A,$B,x) ]
+rule ChanOut_S:
+        [ Out_S($A,$B,x) ]
+        --[ ChanOut_S($A,$B,x) ]->
+        [ !Sec($A,$B,x) ]
 
-rule ChanIn_CAdv:
-    [ In(<$A,$B,x>) ]
-        -->
-        [ In_C($A,$B,x) ]
+rule ChanIn_S:
+        [ !Sec($A,$B,x) ]
+      --[ ChanIn_S($A,$B,x) ]->
+        [ In_S($A,$B,x) ]
+
 
 // User enters claims in browser
 // Browser sends POST request to issuer vis TLS
 rule User_create_offer:
     [ ]
     -->
-    [ Out_C($user, $issuer, $claims), St_usr_1($claims)]
+    [ Out_S($user, $issuer, $claims), St_usr_1($claims)]
 
 
 // Init credential offer on issuer
 // and send it to wallet e.g. scanning qr code
 rule Issuer_credential_offer:
     let credential_offer = <~code, $issuer> in
-    [ In_C($user, $issuer, $claims), Fr(~code)]
+    [ In_S($user, $issuer, $claims), Fr(~code)]
     -->
-    [ Out_C($issuer, $wallet, credential_offer), St_iss_1($issuer, ~code), St_iss_map(~code, $claims)]
+    [ Out_S($issuer, $wallet, credential_offer), St_iss_1($issuer, ~code), St_iss_map(~code, $claims)]
 
 
 // Wallet consumes offer and requests token
@@ -64,10 +60,10 @@ rule Wallet_token_req:
     let credential_offer = <~code, $issuer>
         token_req = <pkWal, ~code>
     in
-    [ In_C($issuer, $wallet, credential_offer),
+    [ In_S($issuer, $wallet, credential_offer),
         !Ltk($wallet, ~ltkWal), !Pk($wallet, pkWal) ]
     -->
-    [ Out_C($wallet, $issuer, token_req), St_wal_1($wallet, ~code)]
+    [ Out_S($wallet, $issuer, token_req), St_wal_1($wallet, ~code)]
 
 rule Issuer_token_res:
     let token_req = <~client_id, ~code>
@@ -79,11 +75,11 @@ rule Issuer_token_res:
         // authorisation_pending and interval fields
         token_res = <token, ~c_nounce>
     in
-    [ In_C($wallet, $issuer, token_req),
+    [ In_S($wallet, $issuer, token_req),
         !Ltk($issuer, ~ltkIss),
         Fr(~c_nounce), St_iss_1($issuer, ~code) ]
     -->
-    [ Out_C($issuer, $wallet, token_res), St_iss_2($issuer, ~code, ~c_nounce) ]
+    [ Out_S($issuer, $wallet, token_res), St_iss_2($issuer, ~code, ~c_nounce) ]
 
 rule Wallet_credential_request:
     let 
@@ -96,13 +92,13 @@ rule Wallet_credential_request:
         // which we get from token response
         credential_req = <token, proof>
     in
-    [In_C($issuer, $wallet,token_res),
+    [In_S($issuer, $wallet,token_res),
         !Ltk($wallet,~ltkWal), !Pk($issuer, pkIss),
         St_wal_1($wallet, ~code)]
 
     --[Eq(revealVerify(token, ~code, pkIss), true)]->
 
-    [Out_C($wallet, $issuer,credential_req), St_wal_2($wallet, ~code, token)]
+    [Out_S($wallet, $issuer,credential_req), St_wal_2($wallet, ~code, token)]
 
 rule Issuer_credential_response:
     let
@@ -121,7 +117,7 @@ rule Issuer_credential_response:
         credential = revealSign(<pkIss, pkWal, $claims>, ~ltkIss)
         credential_res = <credential, ~c_nounce>
     in
-    [In_C($wallet, $issuer,credential_req),
+    [In_S($wallet, $issuer,credential_req),
         St_iss_2($issuer, ~code, ~c_nounce), St_iss_map(~code, $claims),
         !Ltk($issuer, ~ltkIss), !Pk($issuer, pkIss), !Pk($wallet, pkWal)]
     
@@ -130,7 +126,7 @@ rule Issuer_credential_response:
     --[Eq(revealVerify(token, ~code, pkIss), true),
         Eq(revealVerify(proof, ~c_nounce, pkWal), true)]->
 
-    [Out_C($issuer, $wallet,credential_res)]
+    [Out_S($issuer, $wallet,credential_res)]
 
     // At the end user checks credential and decides
     // to accept it or not
@@ -138,20 +134,84 @@ rule Issuer_credential_response:
 rule Wallet_accept_credential:
         let credential_res = <credential, ~c_nounce>
         in
-        [In_C($issuer, $wallet, credential_res),
+        [In_S($issuer, $wallet, credential_res),
             !Ltk($wallet,~ltkWall), !Pk($wallet, pkWal),!Pk($issuer, pkIss)]
 
         --[Eq(revealVerify(credential, getMessage(credential), pkIss), true)]->
 
-        [Out_C($wallet, $user, credential)]
+        [Out_S($wallet, $user, credential)]
 
 rule User_accept_credential:
     let credential = <pkIssFromCredential, pkWalFromCredential, claimsFromCredential>
     in
-    [In_C($wallet, $user, credential), St_usr_1($claims)]
-    --[Eq($claims, claimsFromCredential),
+    [In_S($wallet, $user, credential), St_usr_1($claims)]
+    --[Eq($claims, claimsFromCredential)]->
+    [!Wallet_has(credential)]
+
+
+rule User_Create_Presentation:
+    []
+    -->
+    [Out_S($user, $verifier, $claims), St_ver_1($claims)]
+
+// verifier creates request, stores it, shows qr code containing path to wallet
+rule Verifier_shows_path_to_auth_req:
+    [In_S($user, $verifier, $claims),
+         Fr(~corrId), Fr(~state), Fr(~nounce)]
+    -->
+    [!St_ver_store_reqest($claims, ~corrId, ~state, ~nounce),
+        Out_S($verifier, $wallet, ~corrId)//this is scanning qr code
+    ]
+
+// wallet send POST request containg corrId to get Request object
+rule Wallet_asks_for_auth_req:
+    [In_S($verifier, $wallet, ~corrId)]
+    -->
+    [Out_S($wallet, $verifier, ~corrId)]// this is POST req via TLS
+
+rule Verifier_sends_auth_req:
+    let authReq = revealSign(<~nounce,~state>, ~ltkVer)
+    in
+    [In_S($wallet, $verifier, ~corrId),
+    !St_ver_store_reqest($claims, ~corrId, ~state, ~nounce),
+    !Ltk($verifier,~ltkVer)]
+    -->
+    [Out_S($verifier, $wallet, authReq)]
+
+rule Wallet_sends_auth_res:
+    let credential = <pkIssFromCredential, pkWalFromCredential, claimsFromCredential>
+        authReqM = getMessage(authReq)
+        authReqM = <~nounce,~state>
+        authRes = revealSign(<~nounce, ~state, credential,pkWal>,~ltkWal)
+    in
+    [In_S($verifier, $wallet, authReq),
+        !Wallet_has(credential),
+        !Pk($wallet, pkWal),!Pk($verifier, pkVer), !Ltk($wallet, ~ltkWal)]
+    --[/*provjeri je li auth req ispravno potpisan od verifiera*/]->
+    [Out_S($wallet, $verifier, authRes)]
+
+rule Verifier_consumes_response:
+    let authResM = getMessage(authRes)
+        authResM = <nounceRecv, stateRecv, credentialRecv, pkWalRecv>
+        credentialRecvM = getMessage(credentialRecv)
+        credentialRecvM = <pkIssFromCredential, pkWalFromCredential, claimsFromCredential>
+    in
+    [In_S($wallet, $verifier, authRes),
+        !St_ver_store_reqest($claims, ~corrId, ~state, ~nounce),
+        !Pk($wallet, pkWal),!Pk($issuer, pkIss)]
+    --[/*provjeri je li authRes potpisan od walleta*/
+        Eq(revealVerify(authRes, getMessage(authRes), pkWal), true),
+        Eq(pkWalRecv, pkWal),
+        /*provjeri je li credential potpisan od issuera*/
+        Eq(revealVerify(credentialRecv, getMessage(credentialRecv), pkIss), true),
+        Eq(pkWalFromCredential, pkWal),
+        Eq(pkIssFromCredential, pkIss),
+        /*provjeri je li credential sadržava claimove*/
+        Eq(claimsFromCredential, claims),
         Finish()]->
     []
+    
+    
 
 // modeling security properties of protocol
 lemma executable:
