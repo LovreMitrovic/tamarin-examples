@@ -193,6 +193,7 @@ rule Wallet_sends_auth_res:
 
 rule Verifier_consumes_response:
 /*
+    stari pokušaj
     let authResM = getMessage(authRes)
         authResM = <nounceRecv, stateRecv, credentialRecv, pkWalRecv>
         credentialRecvM = getMessage(credentialRecv)
@@ -230,7 +231,8 @@ lemma executable:
             & not (Ex b #k. LtkReveal(b)@k) "
 // ova lemma exacutable ne prolazi
 // ne vidim dokaz u interaktivnom načinu
-end
+end // makni ovaj end da se učita cijela skrita tu je stavljen jer
+    // drugi dio sadržava sintaktičku grešku
 
 // Credential_is_presented(credentialRecv, pkIss)
 // Credential_is_issued(credential, pkIss)
