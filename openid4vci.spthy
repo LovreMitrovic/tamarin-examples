@@ -225,14 +225,14 @@ rule Verifier_consumes_response:
     
 
 // modeling security properties of protocol
+// lemma prolazi
 lemma executable:
     exists-trace
         " Ex #i. Finish()@i
             & not (Ex b #k. LtkReveal(b)@k) "
-// ova lemma exacutable ne prolazi
-// ne vidim dokaz u interaktivnom načinu
-end // makni ovaj end da se učita cijela skrita tu je stavljen jer
-    // drugi dio sadržava sintaktičku grešku
+// makni ovaj end da se učita cijela skrita tu je stavljen jer
+// drugi dio sadržava sintaktičku grešku
+//end
 
 // Credential_is_presented(credentialRecv, pkIss)
 // Credential_is_issued(credential, pkIss)
@@ -241,10 +241,10 @@ end // makni ovaj end da se učita cijela skrita tu je stavljen jer
 // ova lemma ima neku sintaktičku grešku
 lemma credential_is_authentific:
     " All cr #i.
-        (Credential_is_presented(cr, pkI)@i
+      Credential_is_presented(cr, pkI)@i
         ==> (Ex cre #j. Credential_is_issued(cre, iss)
-            & pkI=iss
-            & cre=cr
-            & j<i))"
+        & pkI=iss
+        & cre=cr
+        & j<i)"
 
 end
