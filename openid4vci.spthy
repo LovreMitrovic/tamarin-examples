@@ -200,6 +200,8 @@ rule Verifier_consumes_response:
 */
     let authRes = <~nounceRecv, ~stateRecv, credentialRecv, pkWalRecv>
         //credentialRecv = <pkIssFromCredential, pkWalFromCredential, claimsFromCredential>
+        // ovo ovdje gore se ne uspjeva dekonstruirati zato je zakomentirano
+        // koristi se u donjem dijelu za provjeru jednakosti
     in
     [In_S($wallet, $verifier, authRes),
         !St_ver_store_reqest($claims, ~corrId, ~state, ~nounce),
