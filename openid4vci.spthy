@@ -124,7 +124,8 @@ rule Issuer_credential_response:
     // token is code signed by Iss
     // proof is nounce signed by wall
     --[Eq(revealVerify(token, ~code, pkIss), true),
-        Eq(revealVerify(proof, ~c_nounce, pkWal), true)]->
+        Eq(revealVerify(proof, ~c_nounce, pkWal), true),
+        Credential_is_issued(credential, pkIss)]->
 
     [Out_S($issuer, $wallet,credential_res)]
 
@@ -180,35 +181,42 @@ rule Verifier_sends_auth_req:
 
 rule Wallet_sends_auth_res:
     let credential = <pkIssFromCredential, pkWalFromCredential, claimsFromCredential>
-        authReqM = getMessage(authReq)
-        authReqM = <~nounce,~state>
+        authReq = <~nounce,~state>
         authRes = revealSign(<~nounce, ~state, credential,pkWal>,~ltkWal)
     in
     [In_S($verifier, $wallet, authReq),
         !Wallet_has(credential),
         !Pk($wallet, pkWal),!Pk($verifier, pkVer), !Ltk($wallet, ~ltkWal)]
-    --[/*provjeri je li auth req ispravno potpisan od verifiera*/]->
+    --[/*provjeri je li auth req ispravno potpisan od verifiera*/
+        Eq(revealVerify(authReq, getMessage(authReq), pkVer), true)]->
     [Out_S($wallet, $verifier, authRes)]
 
 rule Verifier_consumes_response:
+/*
     let authResM = getMessage(authRes)
         authResM = <nounceRecv, stateRecv, credentialRecv, pkWalRecv>
         credentialRecvM = getMessage(credentialRecv)
         credentialRecvM = <pkIssFromCredential, pkWalFromCredential, claimsFromCredential>
+*/
+    let authRes = <~nounceRecv, ~stateRecv, credentialRecv, pkWalRecv>
+        //credentialRecv = <pkIssFromCredential, pkWalFromCredential, claimsFromCredential>
     in
     [In_S($wallet, $verifier, authRes),
         !St_ver_store_reqest($claims, ~corrId, ~state, ~nounce),
         !Pk($wallet, pkWal),!Pk($issuer, pkIss)]
+
     --[/*provjeri je li authRes potpisan od walleta*/
         Eq(revealVerify(authRes, getMessage(authRes), pkWal), true),
         Eq(pkWalRecv, pkWal),
         /*provjeri je li credential potpisan od issuera*/
         Eq(revealVerify(credentialRecv, getMessage(credentialRecv), pkIss), true),
-        Eq(pkWalFromCredential, pkWal),
-        Eq(pkIssFromCredential, pkIss),
+        //Eq(pkWalFromCredential, pkWal),
+        //Eq(pkIssFromCredential, pkIss),
         /*provjeri je li credential sadržava claimove*/
-        Eq(claimsFromCredential, claims),
+        //Eq(claimsFromCredential, $claims),
+        Credential_is_presented(credentialRecv, pkIss),
         Finish()]->
+
     []
     
     
@@ -218,5 +226,21 @@ lemma executable:
     exists-trace
         " Ex #i. Finish()@i
             & not (Ex b #k. LtkReveal(b)@k) "
+// ova lemma exacutable ne prolazi
+// ne vidim dokaz u interaktivnom načinu
+end
+
+// Credential_is_presented(credentialRecv, pkIss)
+// Credential_is_issued(credential, pkIss)
+// Za svaki prezentiran credentialRecv postoji izdan credential
+// i pkIss stvarno dolazi od $issuer
+// ova lemma ima neku sintaktičku grešku
+lemma credential_is_authentific:
+    " All cr #i.
+        (Credential_is_presented(cr, pkI)@i
+        ==> (Ex cre #j. Credential_is_issued(cre, iss)
+            & pkI=iss
+            & cre=cr
+            & j<i))"
 
 end
