@@ -51,7 +51,7 @@ rule User_create_offer:
 rule Issuer_credential_offer:
     let credential_offer = <~code, $issuer> in
     [ In_S($user, $issuer, $claims), Fr(~code)]
-    -->
+    --[Secret(~code)]->
     [ Out_S($issuer, $wallet, credential_offer), St_iss_1($issuer, ~code), St_iss_map(~code, $claims)]
 
 
@@ -78,7 +78,7 @@ rule Issuer_token_res:
     [ In_S($wallet, $issuer, token_req),
         !Ltk($issuer, ~ltkIss),
         Fr(~c_nounce), St_iss_1($issuer, ~code) ]
-    -->
+    --[Secret(token), Secret(~c_nounce)]->
     [ Out_S($issuer, $wallet, token_res), St_iss_2($issuer, ~code, ~c_nounce) ]
 
 rule Wallet_credential_request:
@@ -159,7 +159,7 @@ rule User_Create_Presentation:
 rule Verifier_shows_path_to_auth_req:
     [In_S($user, $verifier, $claims),
          Fr(~corrId), Fr(~state), Fr(~nounce)]
-    -->
+    --[Secret(~corrId), Secret(~state), Secret(~nounce)]->
     [!St_ver_store_reqest($claims, ~corrId, ~state, ~nounce),
         Out_S($verifier, $wallet, ~corrId)//this is scanning qr code
     ]
@@ -230,21 +230,23 @@ lemma executable:
     exists-trace
         " Ex #i. Finish()@i
             & not (Ex b #k. LtkReveal(b)@k) "
-// makni ovaj end da se učita cijela skrita tu je stavljen jer
-// drugi dio sadržava sintaktičku grešku
-//end
 
+lemma secret:
+    " All x #i. Secret(x)@i ==> not (Ex #j. K(x)@j) "
+
+    /*
+lemma authentification:
+    " All b m #i.
+    ( Authentific(b,m)@i & not (Ex #k. LtkReveal(b)@k) )
+    ==> (Ex #j. Send(b,m)@j & j<i) "
+*/
 // Credential_is_presented(credentialRecv, pkIss)
-// Credential_is_issued(credential, pkIss)
+// Credential_is_issued(credential, $issuer)
 // Za svaki prezentiran credentialRecv postoji izdan credential
 // i pkIss stvarno dolazi od $issuer
-// ova lemma ima neku sintaktičku grešku
-lemma credential_is_authentific:
-    " All cr #i.
-      Credential_is_presented(cr, pkI)@i
-        ==> (Ex cre #j. Credential_is_issued(cre, iss)
-        & pkI=iss
-        & cre=cr
-        & j<i)"
 
+lemma credential_is_authentific:
+    " All cr pkIss #i. Credential_is_presented(cr, pkIss)@i
+    ==> Ex c pkI #j. Credential_is_issued(c, pkI)@j & j<i & pkIss = pkI
+    "
 end
