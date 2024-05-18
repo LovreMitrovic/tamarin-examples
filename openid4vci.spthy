@@ -85,6 +85,7 @@ rule Issuer_token_res:
 rule Wallet_credential_request:
     let 
         token_res = <token, ~c_nounce>
+        code = snd(token)
         sig = sign(~c_nounce, ~ltkWal)
         proof = <sig, ~c_nounce>
         // Missing fields are types which is list of credential types
@@ -95,10 +96,10 @@ rule Wallet_credential_request:
     in
     [In_S($issuer, $wallet,token_res),
         !Ltk($wallet,~ltkWal),
-        St_wal_1($wallet, ~code)]
+        St_wal_1($wallet, ~codeSt)]
 
     //--[Eq(revealVerify(token, ~code, pkIss), true)]-> not in specs
-    -->
+    --[Eq(code, ~codeSt)]->
     [Out_S($wallet, $issuer,credential_req), St_wal_2($wallet, token)]
 
 rule Issuer_credential_response:
