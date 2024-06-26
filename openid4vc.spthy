@@ -206,3 +206,4 @@ lemma autentific_claims:
 
 lemma secret:
     " All x #i. Secret(x)@i ==> not (Ex #j. K(x)@j) "
+end
